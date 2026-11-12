@@ -1,0 +1,708 @@
+
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+
+
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+ 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+ 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  @@id([provider, providerAccountId])
+}
+ 
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+ 
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+ 
+  @@id([identifier, token])
+}
+ 
+// Optional for WebAuthn support
+model Authenticator {
+  credentialID         String  @unique
+  userId               String
+  providerAccountId    String
+  credentialPublicKey  String
+  counter              Int
+  credentialDeviceType String
+  credentialBackedUp   Boolean
+  transports           String?
+ 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  @@id([userId, credentialID])
+}
+
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String?
+  name      String?
+  emailVerified DateTime?
+  image         String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  shops     Shop[]
+  accounts      Account[]
+  sessions      Session[]
+  passwordResetTokens PasswordResetToken[]
+  // Optional for WebAuthn support
+  Authenticator Authenticator[]
+
+  isSuspended Boolean      @default(false)
+  lastLoginAt DateTime?
+  loginEvents LoginEvent[]
+
+  subscription Subscription?
+}
+
+// Written by the main app on every successful owner sign-in; read by the admin app.
+model LoginEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+// Written by the admin app only. No relations on purpose, so audit rows survive any deletion.
+model AuditLog {
+  id         String   @id @default(cuid())
+  adminEmail String
+  action     String   // UPDATE | DELETE
+  resource   String   // users | shops | products ...
+  targetId   String?
+  changes    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([resource, targetId])
+}
+
+model Shop {
+  id          String   @id @default(cuid())
+  name        String
+  subdomain   String   @unique
+  description String?
+  logoUrl     String?
+  themeId     String?
+  userId      String
+  themeOverrides Json?
+
+  // Payment settings
+  stripeAccountId     String?
+  stripePublishableKey String?
+  paypalEmail         String?
+  
+  // Email settings
+  emailFrom       String?
+  emailReplyTo    String?
+
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme   Theme?    @relation(fields: [themeId], references: [id])
+  pages   Page[]
+  domains Domain[]
+  products Product[]
+  categories Category[]
+  customers  Customer[]
+  orders     Order[]
+  
+  @@index([subdomain])
+  @@index([userId])
+}
+
+model Domain {
+  id        String   @id @default(cuid())
+  domain    String   @unique
+  shopId    String
+  verified  Boolean  @default(false)
+  created_at DateTime @default(now())
+  
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  
+  @@index([shopId])
+}
+
+model Theme {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  thumbnail   String?
+  isActive    Boolean  @default(true)
+
+  defaultSettings Json?
+
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  
+  shops Shop[]
+}
+
+model Page {
+  id        String   @id @default(cuid())
+  shopId    String
+  slug      String
+  title     String
+  layout    Json     // Stores block structure
+  isHome    Boolean  @default(false)
+  published Boolean  @default(true)
+  showInNav Boolean  @default(true)
+  weight      Int      @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  
+  @@unique([shopId, slug])
+  @@index([shopId, weight])
+}
+
+
+model Category {
+  id          String    @id @default(cuid())
+  shopId      String
+  name        String
+  slug        String
+  description String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  
+  shop     Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  products Product[]
+  
+  @@unique([shopId, slug])
+  @@index([shopId])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  shopId      String
+  categoryId  String?
+  platform_categoryId String?
+  name        String
+  description String?
+  price       Float
+
+  compareAtPrice Float? // Original price for sale display
+  images      String[]
+  stock       Int      @default(0)
+  sku         String?
+  published   Boolean  @default(false)
+  hasVariations Boolean @default(false)
+
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  
+  shop     Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  platform_category    PlatformCategory? @relation(fields: [platform_categoryId], references: [id], onDelete: SetNull)
+
+  // Product attributes (dynamic properties)
+  attributes  ProductAttribute[]
+
+  variations   ProductVariation[]
+  cartItems CartItem[]
+  orderItems OrderItem[]
+  
+  @@index([shopId])
+  @@index([categoryId])
+  @@index([platform_categoryId])
+}
+
+// NEW: Product Variations
+model ProductVariation {
+  id          String   @id @default(cuid())
+  productId   String
+  name        String   // e.g., "Small / Red"
+  sku         String?
+  price       Float?   // Override product price
+  stock       Int      @default(0)
+  attributes  Json     // { "size": "Small", "color": "Red" }
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+  
+  @@index([productId])
+}
+
+// NEW: Customer accounts (isolated per shop)
+model Customer {
+  id        String   @id @default(cuid())
+  shopId    String
+  email     String
+  password  String
+  name      String
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  shop      Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  addresses Address[]
+  carts     Cart[]
+  orders    Order[]
+  
+  @@unique([shopId, email])
+  @@index([shopId])
+}
+
+// NEW: Customer addresses
+model Address {
+  id         String   @id @default(cuid())
+  customerId String
+  firstName  String
+  lastName   String
+  address1   String
+  address2   String?
+  city       String
+  state      String
+  zipCode    String
+  country    String
+  phone      String?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orders   Order[]
+  
+  @@index([customerId])
+}
+
+// NEW: Shopping cart
+model Cart {
+  id         String   @id @default(cuid())
+  shopId     String
+  customerId String?
+  sessionId  String?  // For guest carts
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  customer Customer?  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items    CartItem[]
+  
+  @@unique([shopId, sessionId])
+  @@index([shopId])
+  @@index([customerId])
+  @@index([sessionId])
+}
+
+// NEW: Cart items
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  productId String
+  variationId String?
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variation ProductVariation?  @relation(fields: [variationId], references: [id], onDelete: Cascade)
+  
+  @@unique([cartId, productId, variationId])
+  @@index([cartId])
+  @@index([productId])
+  @@index([variationId])
+}
+
+// NEW: Orders
+model Order {
+  id              String   @id @default(cuid())
+  shopId          String
+  customerId      String
+  addressId       String
+  orderNumber     String   @unique
+  status          String   @default("pending")
+  subtotal        Float
+  tax             Float    @default(0)
+  shipping        Float    @default(0)
+  total           Float
+  paymentStatus   String   @default("pending")
+  paymentMethod   String?
+  paymentIntentId String?  // Stripe Payment Intent ID
+  notes           String?
+  trackingNumber  String?
+  emailSent       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  shop     Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  customer Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  address  Address     @relation(fields: [addressId], references: [id])
+  items    OrderItem[]
+  
+  @@index([shopId])
+  @@index([customerId])
+  @@index([orderNumber])
+}
+
+// NEW: Order items
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  productId String
+  variationId String?
+  productName String   // Snapshot at time of order
+  variationName String? // Snapshot
+  quantity  Int
+  price     Float    // Price at time of order
+  createdAt DateTime @default(now())
+  
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+  variation ProductVariation?  @relation(fields: [variationId], references: [id])
+  
+  @@index([orderId])
+  @@index([productId])
+}
+
+
+// ============================================
+// ACTIVITY (Top-level category groups)
+// ============================================
+model Activity {
+  id         String     @id @default(cuid())
+  name       String     @unique // e.g., "Animals & Pet Supplies"
+  slug       String     @unique
+  categories PlatformCategory[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  translations ActivityTranslation[]
+
+  @@index([slug])
+  @@map("activities")
+}
+
+model ActivityTranslation{
+  activityId  String
+  activity    Activity  @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  locale String
+  
+  name String
+
+  // Clé primaire composée : empêche les doublons pour une même langue
+  @@id([activityId, locale])
+  
+  // Index pour accélérer les recherches par langue
+  @@index([locale])
+  @@map("activity_translation")
+}
+
+// ============================================
+// CATEGORY (Hierarchical taxonomy)
+// ============================================
+model PlatformCategory {
+  id          String   @id // e.g., "gid://shopify/TaxonomyCategory/ap-2"
+  name        String
+  slug        String
+  description String?
+  
+  // Self-referential relationship for hierarchy
+  parentId    String?
+  parent      PlatformCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    PlatformCategory[] @relation("CategoryHierarchy")
+  
+  // Link to Activity (top-level group)
+  activityId  String?
+  activity    Activity?  @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  
+  // Attributes associated with this category
+  categoryAttributes CategoryAttribute[]
+  
+  // Products in this category
+  products    Product[]
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  translations PlatformCategoryTranslation[]
+
+  @@index([parentId])
+  @@index([activityId])
+  @@index([slug])
+  @@map("categories")
+}
+
+model PlatformCategoryTranslation{
+  platform_categoryId  String
+  platform_category    PlatformCategory  @relation(fields: [platform_categoryId], references: [id], onDelete: Cascade)
+
+  locale String
+  
+  name String
+
+  // Clé primaire composée : empêche les doublons pour une même langue
+  @@id([platform_categoryId, locale])
+  
+  // Index pour accélérer les recherches par langue
+  @@index([locale])
+  @@map("platform_category_translation")
+}
+
+// ============================================
+// ATTRIBUTE (Product attributes/properties)
+// ============================================
+model Attribute {
+  id          String   @id // e.g., "gid://shopify/TaxonomyAttribute/1308"
+  name        String
+  handle      String   @unique // URL-friendly identifier
+  description String?
+  type        String   @default("select") // select, text, number, boolean, etc.
+  required    Boolean  @default(false)
+  extended    Boolean  @default(false) // Extended attributes are optional/specialized
+  
+  // Attribute options (for select type)
+  options     AttributeOption[]
+  
+  // Categories that use this attribute
+  categoryAttributes CategoryAttribute[]
+  
+  // Product attribute values
+  productAttributes ProductAttribute[]
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  translations AttributeTranslation[]
+
+  @@index([handle])
+  @@index([type])
+  @@map("attributes")
+}
+
+model AttributeTranslation{
+  attributeId String
+  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+
+  locale String
+  
+  name String
+
+  // Clé primaire composée : empêche les doublons pour une même langue
+  @@id([attributeId, locale])
+  
+  // Index pour accélérer les recherches par langue
+  @@index([locale])
+  @@map("attribute_translation")
+}
+
+// ============================================
+// ATTRIBUTE OPTION (Available values for attributes)
+// ============================================
+model AttributeOption {
+  id          String    @id @default(cuid())
+  value       String
+  attributeId String
+  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime  @default(now())
+
+  translations AttributeOptionTranslation[]
+
+  @@unique([attributeId, value])
+  @@index([attributeId])
+  @@map("attribute_options")
+}
+
+model AttributeOptionTranslation {
+  attribute_optionId String
+  attribute_option AttributeOption @relation(fields: [attribute_optionId], references: [id], onDelete: Cascade)
+
+  locale String
+
+  name String
+
+  // Clé primaire composée : empêche les doublons pour une même langue
+  @@id([attribute_optionId, locale])
+  
+  // Index pour accélérer les recherches par langue
+  @@index([locale])
+  @@map("attribute_option_translation")
+
+}
+
+// ============================================
+// CATEGORY-ATTRIBUTE (Junction table)
+// ============================================
+model CategoryAttribute {
+  id          String    @id @default(cuid())
+  categoryId  String
+  category    PlatformCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  attributeId String
+  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  required    Boolean   @default(false)
+  sortOrder   Int       @default(0)
+  
+  createdAt   DateTime  @default(now())
+
+  @@unique([categoryId, attributeId])
+  @@index([categoryId])
+  @@index([attributeId])
+  @@map("category_attributes")
+}
+
+
+// ============================================
+// PRODUCT ATTRIBUTE (Product-specific attribute values)
+// ============================================
+model ProductAttribute {
+  id          String    @id @default(cuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attributeId String
+  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  value       String    // The selected/entered value
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([productId, attributeId])
+  @@index([productId])
+  @@index([attributeId])
+  @@map("product_attributes")
+}
+
+
+
+// ============================================
+// USER ACTIVITY LOG 
+// ============================================
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String   // e.g., "USER_LOGIN", "EXPORTED_REPORT"
+  details   String?  // JSON string of metadata
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
+
+
+
+// ============================================
+// SUBSCRIPTION 
+// ============================================
+
+
+enum PlanTier {
+  FREE
+  STARTER
+  PRO
+  BUSINESS
+}
+
+enum PaymentProvider {
+  STRIPE
+  SENEPAY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  UNPAID
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+
+  // One subscription per user. If your billing entity is an Organization
+  // instead of a User, rename userId -> organizationId and adjust the
+  // relation below (and every lib/ file that references it).
+  userId               String             @unique
+  user                 User               @relation(fields: [userId], references: [id])
+
+  stripeCustomerId     String             @unique
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+
+
+  // ── SenePay-specific (used when provider = SENEPAY) ─────────────────────
+  // SenePay has no native recurring billing — each period is a fresh
+  // checkout session. We track the phone used and the last session so
+  // support/debugging has something to look at.
+  senepayPhone            String?
+  senepayLastSessionToken String?
+  renewalReminderSentAt   DateTime? // last time we emailed/texted a renewal link; reset to null on each new period
+
+
+  plan                 PlanTier           @default(FREE)
+  status               SubscriptionStatus @default(ACTIVE)
+
+  // Which gateway currently owns this subscription. Null until the first
+  // successful payment — a brand-new signup has no provider yet.
+  provider             PaymentProvider?
+
+  // Set once at signup: createdAt + 30 days. Drives the free-trial lockout.
+  trialEndsAt          DateTime?
+
+
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([stripeCustomerId])
+  @@index([status, provider])
+}
